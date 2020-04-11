@@ -11,6 +11,3 @@ typedef struct process{
 } Process;
 
 void scheduling(Process *process, char *policy, int n);
-void assignCPU();
-int blockProcess();
-void wakeupProcess();

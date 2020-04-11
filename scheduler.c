@@ -13,14 +13,15 @@
 int time; //time since scheduler start.
 int runningProcess; //Index of running process, -1 means no process is running.
 int finishedCount; //The number of finished process.
-
+int keepTime; //time for RR
 
 void scheduling(Process *process, char *policy, int n);
 void assignCPU();
-int blockProcess();
+void suspendProcess();
 void wakeupProcess();
 int com(const void *p1, const void *p2);
 int executeProcess(Process *process);
+void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, int time, int *keepTime);
 
 void scheduling(Process *process, char *policy, int n){
 	qsort(process, n, sizeof(Process), com);	
@@ -52,9 +53,22 @@ void scheduling(Process *process, char *policy, int n){
 		for(int i = 0; i < n; i++){
 			if(process[i].readyTime == time){
 				process[i].pid = executeProcess(&process[i]);
-
+				fprintf(stderr, "[READY]	%s is ready and executed with pid %d at time %d", process[i].name, process[i].pid, time);		
+			}
+			if(process[i].readyTime > time){
+				break;
 			}
 		}
+
+		//Select next process to run
+		nextProcess(process, policy, n, &runningProcess, time, &keepTime);
+
+		//Run a time of unit
+		timeUnit();
+		if(runningProcess != -1){
+			process[runningProcess].executionTime--;
+		}
+		time++;
 	}
 
 	return;
@@ -63,7 +77,7 @@ void scheduling(Process *process, char *policy, int n){
 
 void assignCPU(pid_t pid, int coreNumber){
 	if(coreNumber > sizeof(cpu_set_t)){
-		fprintf(stderr, "wrong core index\n");
+		fprintf(stderr, "[ERROR]	wrong core index\n");
 		exit(0);
 	}
 
@@ -77,14 +91,21 @@ void assignCPU(pid_t pid, int coreNumber){
 	}
 	return;
 }
-int blockProcess(){
-	return 0;
+void suspendProcess(pid_t pid){
+	struct  sched_param p;
+	p.sched_priority = 0;
+	if(sched_setscheduler(pid, SCHED_IDLE, &p) < 0){
+		fprintf(stderr, "[ERROR]	In suspend process set scheduler eooro with error number %d\n", errno);
+		exit(0);
+	}
+	return;
 }
 void wakeupProcess(pid_t pid){
 	struct sched_param p;
 	p.sched_priority = 0;
 	if(sched_setscheduler(pid, SCHED_OTHER, &p) < 0){
-		fprintf(stderr, "[ERROR]	set scheduler error with error number %d\n", errno);
+		fprintf(stderr, "[ERROR]	In wake up process set scheduler error with error number %d\n", errno);
+		exit(0);
 	}
 	return;
 }
@@ -96,7 +117,7 @@ int com(const void *p1, const void *p2){
 }
 
 int executeProcess(Process *process){
-	int pid = fork();
+	pid_t pid = fork();
 
 	if(pid < 0){
 		fprintf(stderr, "[ERROR]	fork error with error  number %d\n", errno);	
@@ -119,6 +140,68 @@ int executeProcess(Process *process){
 	else if(pid > 0){
 		//assign all process same index of CPU.
 		assignCPU(pid, 1);
+		suspendProcess(pid);
 		return pid;
 	}
+}
+
+
+void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, int time, int *keepTime){
+	int temp = *runningProcess;
+	if(*runningProcess != -1 && ( (strcmp(policy, "FIFO")) == 0 || (strcmp(policy, "SJF")) == 0) ){
+		return; 
+	}
+	else if(strcmp(policy, "PSJF") == 0 || strcmp(policy, "SJF") == 0 ){
+		for(int i = 0; i < n; i++){
+			if(process[i].pid == -1 || process[i].executionTime == 0){
+				continue;
+			}
+			if(temp == -1 || process[i].executionTime < process[temp].executionTime){
+				temp = i;
+			}
+		}
+	}
+	else if(strcmp(policy, "FIFO") == 0){
+		if(temp != -1){
+			fprintf(stderr, "[ERROR]	Why runnning process is not -1????????\n");
+			exit(0);
+		}
+		for(int i = 0; i < n; i++){
+			if(process[i].pid == -1 || process[i].executionTime == 0){
+				continue;
+			}
+			else if(process[i].readyTime < process[temp].readyTime){
+				temp = i;
+			}
+		}
+	}
+	else if(strcmp(policy, "RR") == 0){
+		if(temp == -1){
+			for(int i = 0; i < n; i++){
+				if(process[i].pid != -1 && process[i].executionTime > 0){
+					temp = i;
+					break;
+				}
+			}
+		}
+		else if( (time - *keepTime) % 500 == 0){
+			do{
+				temp++;
+				temp %= n;
+			}while(process[temp].pid == -1 || process[temp].executionTime == 0);
+		}
+	}
+	
+	if(*runningProcess == temp){
+		return;
+	}
+	else{
+		//context switch
+		wakeupProcess(temp);
+		suspendProcess(*runningProcess);
+		*runningProcess = temp;
+		*keepTime = time;
+		return;
+	}
+
 }
