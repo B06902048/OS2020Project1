@@ -9,11 +9,14 @@
 #include<sys/syscall.h>
 #include<unistd.h>
 #include<sys/wait.h>
+#include<sys/sysinfo.h>
+
 
 int time; //time since scheduler start.
 int runningProcess; //Index of running process, -1 means no process is running.
 int finishedCount; //The number of finished process.
 int keepTime; //time for RR
+//pid_t defaultRunner;
 
 void scheduling(Process *process, char *policy, int n);
 void assignCPU();
@@ -24,10 +27,27 @@ int executeProcess(Process *process);
 void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, int time, int *keepTime);
 
 void scheduling(Process *process, char *policy, int n){
+	//printf("%d processors and %d available\n", get_nprocs_conf(), get_nprocs());
+	//exit(0);
+
 	qsort(process, n, sizeof(Process), com);	
 	
 	//assign scheduler a CPU with number 0
 	assignCPU(getpid(), 0);
+
+	/*
+	defaultRunner = fork();
+	if(defaultRunner < 0){
+		fprintf(stderr, "[ERROR]	fork error\n");
+	}
+	else if(defaultRunner == 0){
+		while(1);
+	}
+	else{
+		assignCPU(defaultRunner, 1);
+		wakeupProcess(defaultRunner);
+	}
+	*/
 
 	//set other pid to -1
 	for(int i = 0; i < n; i++){
@@ -43,17 +63,23 @@ void scheduling(Process *process, char *policy, int n){
 	while(1){
 		//Check if there is a finished process
 		if(runningProcess != -1 && process[runningProcess].executionTime == 0){
-			fprintf(stderr, "[FINISH]	%s was finished at time %d\n", process[runningProcess].name, time);
+			//fprintf(stderr, "[FINISH]	%s was finished at time %d\n", process[runningProcess].name, time);
 			waitpid(process[runningProcess].pid, NULL, 0);
 			runningProcess = -1;
+			//wakeupProcess(defaultRunner);
 			finishedCount++;
+			if(finishedCount == n){
+				//kill(defaultRunner, SIGKILL);
+				break;
+			}
 		}
 
 		//Check if there is a ready process
 		for(int i = 0; i < n; i++){
 			if(process[i].readyTime == time){
 				process[i].pid = executeProcess(&process[i]);
-				fprintf(stderr, "[READY]	%s is ready and executed with pid %d at time %d", process[i].name, process[i].pid, time);		
+				//fprintf(stderr, "[READY]	%s is ready and executed with pid %d at time %d\n", process[i].name, process[i].pid, time);		
+				fprintf(stderr, "%s %d\n", process[i].name, process[i].pid);
 			}
 			if(process[i].readyTime > time){
 				break;
@@ -67,6 +93,7 @@ void scheduling(Process *process, char *policy, int n){
 		timeUnit();
 		if(runningProcess != -1){
 			process[runningProcess].executionTime--;
+			//fprintf(stderr, "[ONEUNIT]	pid %d executionTime %d\n", process[runningProcess].pid, process[runningProcess].executionTime);
 		}
 		time++;
 	}
@@ -80,7 +107,6 @@ void assignCPU(pid_t pid, int coreNumber){
 		fprintf(stderr, "[ERROR]	wrong core index\n");
 		exit(0);
 	}
-
 	cpu_set_t mask;
 	CPU_ZERO(&mask);
 	CPU_SET(coreNumber, &mask);
@@ -98,6 +124,7 @@ void suspendProcess(pid_t pid){
 		fprintf(stderr, "[ERROR]	In suspend process set scheduler eooro with error number %d\n", errno);
 		exit(0);
 	}
+	//fprintf(stderr, "[SUS]	pid %d is suspend\n", pid);
 	return;
 }
 void wakeupProcess(pid_t pid){
@@ -107,6 +134,7 @@ void wakeupProcess(pid_t pid){
 		fprintf(stderr, "[ERROR]	In wake up process set scheduler error with error number %d\n", errno);
 		exit(0);
 	}
+	//fprintf(stderr, "[UP]	pid %d is up\n", pid);
 	return;
 }
 
@@ -125,6 +153,7 @@ int executeProcess(Process *process){
 	}
 	//child
 	else if(pid == 0){
+		//fprintf(stderr, "[FORK] Child pid %d\n", getpid());
 		unsigned long long startSec, startNSec, endSec, endNSec;
 		char sendTodmsg[1024];
 		syscall(334, &startSec, &startNSec); // get now time.
@@ -133,7 +162,8 @@ int executeProcess(Process *process){
 			timeUnit();
 		}
 		syscall(334, &endSec, &endNSec); //get now time.
-		sprintf(sendTodmsg, "[Project1] %d %llu.%09llu %llu.%09llu\n", getpid(), startSec, startNSec, endSec, endNSec);
+		sprintf(sendTodmsg, "[Project1] %d %llu.%09llu %llu.%09llu", getpid(), startSec, startNSec, endSec, endNSec);
+		fprintf(stderr, "%s\n", sendTodmsg);
 		exit(0);
 	}
 	//parent
@@ -170,7 +200,7 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 			if(process[i].pid == -1 || process[i].executionTime == 0){
 				continue;
 			}
-			else if(process[i].readyTime < process[temp].readyTime){
+			else if(temp == -1 || process[i].readyTime < process[temp].readyTime){
 				temp = i;
 			}
 		}
@@ -197,8 +227,13 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 	}
 	else{
 		//context switch
-		wakeupProcess(temp);
-		suspendProcess(*runningProcess);
+		wakeupProcess(process[temp].pid);
+		if(*runningProcess != -1){
+			suspendProcess(process[*runningProcess].pid);
+		}
+		else{
+			//suspendProcess(defaultRunner);
+		}
 		*runningProcess = temp;
 		*keepTime = time;
 		return;
