@@ -76,18 +76,24 @@ void scheduling(Process *process, char *policy, int n){
 			waitpid(process[runningProcess].pid, NULL, 0);
 			//fprintf(stderr, "[CONTEXTSWITCH]	to default runner\n");
 			wakeupProcess(defaultRunner);
-			next = runningProcess;
-			process[runningProcess].pid = -1;
-			runningProcess = -1;
 			finishedCount++;
 			if(finishedCount == n){
 				// When all processes are finished, kill default runner and break. 
 				kill(defaultRunner, SIGKILL);
 				break;
 			}
+			next = (runningProcess + 1) % n;
+			process[runningProcess].pid = -1;
 			while(process[next].pid == -1 || process[next].executionTime == 0){
+				if(next == runningProcess){
+					break;
+				}
 				next = (next + 1) % n;
 			}
+			if(next == runningProcess){
+				next = -1;
+			}
+			runningProcess = -1;
 		}
 
 
