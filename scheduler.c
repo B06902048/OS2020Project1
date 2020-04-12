@@ -14,11 +14,13 @@
 
 
 
-int time; //time since scheduler start.
-int runningProcess; //Index of running process, -1 means no process is running.
-int finishedCount; //The number of finished process.
-int keepTime; //time for RR
+int time; // Time since scheduler start.
+int runningProcess; // Index of running process, -1 means no process is running.
+int finishedCount; // The number of finished process.
+int keepTime; // Time for RR
 pid_t defaultRunner;
+pid_t next; // The expected next process to run in RR.
+
 
 void scheduling(Process *process, char *policy, int n);
 void assignCPU(pid_t pid, int coreNumber);
@@ -72,15 +74,19 @@ void scheduling(Process *process, char *policy, int n){
 		if(runningProcess != -1 && process[runningProcess].executionTime == 0){
 			//fprintf(stderr, "[FINISH]	%s was finished at time %d\n", process[runningProcess].name, time);
 			waitpid(process[runningProcess].pid, NULL, 0);
-			process[runningProcess].pid = -1;
 			//fprintf(stderr, "[CONTEXTSWITCH]	to default runner\n");
-			runningProcess = -1;
 			wakeupProcess(defaultRunner);
+			next = runningProcess;
+			process[runningProcess].pid = -1;
+			runningProcess = -1;
 			finishedCount++;
 			if(finishedCount == n){
 				// When all processes are finished, kill default runner and break. 
 				kill(defaultRunner, SIGKILL);
 				break;
+			}
+			while(process[next].pid == -1 || process[next].executionTime == 0){
+				next = (next + 1) % n;
 			}
 		}
 
@@ -261,16 +267,11 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 		/* Policy is RR, check if the running time chieve time quamtum.
 		   if yes, choose next process to run. */
 		if(temp == -1){
-			// There is no process running, just let the fisrt suspended process run.
-			for(int i = 0; i < n; i++){
-				if(process[i].pid != -1 && process[i].executionTime > 0){
-					temp = i;
-					break;
-				}
-			}
+			// There is no process running, let next pid to run.
+			temp = next;
 		}
 		else if( (time - *keepTime) % 500 == 0){
-			// There is a process running, check hoe much time it has used to run.
+			// There is a process running, check how much time it has used to run.
 			do{
 				temp++;
 				temp %= n;
