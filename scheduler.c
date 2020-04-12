@@ -12,30 +12,35 @@
 #include<sys/sysinfo.h>
 
 
+
+
 int time; //time since scheduler start.
 int runningProcess; //Index of running process, -1 means no process is running.
 int finishedCount; //The number of finished process.
 int keepTime; //time for RR
-//pid_t defaultRunner;
+pid_t defaultRunner;
 
 void scheduling(Process *process, char *policy, int n);
-void assignCPU();
-void suspendProcess();
-void wakeupProcess();
+void assignCPU(pid_t pid, int coreNumber);
+void suspendProcess(pid_t pid);
+void wakeupProcess(pid_t pid);
+void initialProcess(pid_t pid);
 int com(const void *p1, const void *p2);
 int executeProcess(Process *process);
 void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, int time, int *keepTime);
+void processInfo(pid_t pid);
+
 
 void scheduling(Process *process, char *policy, int n){
 	//printf("%d processors and %d available\n", get_nprocs_conf(), get_nprocs());
 	//exit(0);
+	
 
 	qsort(process, n, sizeof(Process), com);	
 	
 	//assign scheduler a CPU with number 0
 	assignCPU(getpid(), 0);
 
-	/*
 	defaultRunner = fork();
 	if(defaultRunner < 0){
 		fprintf(stderr, "[ERROR]	fork error\n");
@@ -47,7 +52,6 @@ void scheduling(Process *process, char *policy, int n){
 		assignCPU(defaultRunner, 1);
 		wakeupProcess(defaultRunner);
 	}
-	*/
 
 	//set other pid to -1
 	for(int i = 0; i < n; i++){
@@ -66,10 +70,10 @@ void scheduling(Process *process, char *policy, int n){
 			//fprintf(stderr, "[FINISH]	%s was finished at time %d\n", process[runningProcess].name, time);
 			waitpid(process[runningProcess].pid, NULL, 0);
 			runningProcess = -1;
-			//wakeupProcess(defaultRunner);
+			wakeupProcess(defaultRunner);
 			finishedCount++;
 			if(finishedCount == n){
-				//kill(defaultRunner, SIGKILL);
+				kill(defaultRunner, SIGKILL);
 				break;
 			}
 		}
@@ -119,22 +123,22 @@ void assignCPU(pid_t pid, int coreNumber){
 }
 void suspendProcess(pid_t pid){
 	struct  sched_param p;
-	p.sched_priority = 0;
-	if(sched_setscheduler(pid, SCHED_IDLE, &p) < 0){
+	p.sched_priority = 1;	
+	//fprintf(stderr, "[SUS]	pid %d is suspend\n", pid);
+	if(sched_setscheduler(pid, SCHED_FIFO, &p) < 0){
 		fprintf(stderr, "[ERROR]	In suspend process set scheduler eooro with error number %d\n", errno);
 		exit(0);
 	}
-	//fprintf(stderr, "[SUS]	pid %d is suspend\n", pid);
 	return;
 }
 void wakeupProcess(pid_t pid){
 	struct sched_param p;
-	p.sched_priority = 0;
-	if(sched_setscheduler(pid, SCHED_OTHER, &p) < 0){
+	p.sched_priority = 99;	
+	//fprintf(stderr, "[UP]	pid %d is up\n", pid);
+	if(sched_setscheduler(pid, SCHED_FIFO, &p) < 0){
 		fprintf(stderr, "[ERROR]	In wake up process set scheduler error with error number %d\n", errno);
 		exit(0);
 	}
-	//fprintf(stderr, "[UP]	pid %d is up\n", pid);
 	return;
 }
 
@@ -153,10 +157,15 @@ int executeProcess(Process *process){
 	}
 	//child
 	else if(pid == 0){
+		printf("child\n");
+		processInfo(getppid());
+		processInfo(getpid());	
 		//fprintf(stderr, "[FORK] Child pid %d\n", getpid());
 		unsigned long long startSec, startNSec, endSec, endNSec;
 		char sendTodmsg[1024];
 		syscall(334, &startSec, &startNSec); // get now time.
+		wakeupProcess(getppid());
+		suspendProcess(getpid());
 		int executionTime = process->executionTime;
 		for(int i = 0; i < executionTime; i++){
 			timeUnit();
@@ -168,7 +177,13 @@ int executeProcess(Process *process){
 	}
 	//parent
 	else if(pid > 0){
+		printf("parent\n");
+		processInfo(getpid());
+		processInfo(pid);
 		//assign all process same index of CPU.
+		assignCPU(pid, 0);
+		wakeupProcess(pid);
+		suspendProcess(getpid());
 		assignCPU(pid, 1);
 		suspendProcess(pid);
 		return pid;
@@ -204,7 +219,7 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 				temp = i;
 			}
 		}
-	}
+	}	
 	else if(strcmp(policy, "RR") == 0){
 		if(temp == -1){
 			for(int i = 0; i < n; i++){
@@ -227,16 +242,43 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 	}
 	else{
 		//context switch
+		if(*runningProcess != -1){
+			fprintf(stderr, "[CONTEXTSWITCH]	pid %d to pid %d\n", process[*runningProcess].pid, process[temp].pid);
+		}
+		else{
+			fprintf(stderr, "[CONTEXTSWITCH]	to pid %d\n", process[temp].pid);
+		}
 		wakeupProcess(process[temp].pid);
 		if(*runningProcess != -1){
 			suspendProcess(process[*runningProcess].pid);
 		}
 		else{
-			//suspendProcess(defaultRunner);
+			suspendProcess(defaultRunner);
 		}
 		*runningProcess = temp;
 		*keepTime = time;
 		return;
 	}
 
+}
+
+
+void initialProcess(pid_t pid){
+	struct sched_param p;
+	p.sched_priority = 50;
+	if(sched_setscheduler(pid, SCHED_FIFO, &p) < 0){
+		fprintf(stderr, "[ERROR]	In wake up process set scheduler error with error number %d\n", errno);
+		exit(0);
+	}
+	fprintf(stderr, "[INITIAL]	pid %d is up\n", pid);
+	return;
+}
+
+
+void processInfo(pid_t pid){
+	struct sched_param p;
+	if(sched_getparam(pid, &p) < 0){
+		fprintf(stderr, "[ERROR]	get param error with error number %d\n", errno);
+	}
+	fprintf(stderr, "[INFO]	pid %d priority %d\n", pid, p.sched_priority);
 }
