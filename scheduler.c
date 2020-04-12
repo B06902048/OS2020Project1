@@ -67,6 +67,7 @@ void scheduling(Process *process, char *policy, int n){
 	time = 0;
 	runningProcess = -1;
 	finishedCount = 0;
+	next = -1;
 
 	while(1){
 
@@ -104,6 +105,9 @@ void scheduling(Process *process, char *policy, int n){
 				//fprintf(stderr, "[READY]	%s is ready and executed with pid %d at time %d\n", process[i].name, process[i].pid, time);		
 				printf("%s %d\n", process[i].name, process[i].pid);
 				fflush(stdout);
+				if(runningProcess == -1 && next == -1){
+					next = i;
+				}
 			}
 			if(process[i].readyTime > time){
 				break;
