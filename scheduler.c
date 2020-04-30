@@ -18,8 +18,10 @@ int time; // Time since scheduler start.
 int runningProcess; // Index of running process, -1 means no process is running.
 int finishedCount; // The number of finished process.
 int keepTime; // Time for RR
+int queue[4096]; //queue for scheduling
+int start, end;
 pid_t defaultRunner;
-pid_t next; // The expected next process to run in RR.
+//pid_t next; // The expected next process to run in RR.
 
 
 void scheduling(Process *process, char *policy, int n);
@@ -37,7 +39,8 @@ void scheduling(Process *process, char *policy, int n){
 	//printf("%d processors and %d available\n", get_nprocs_conf(), get_nprocs());
 	//exit(0);
 	qsort(process, n, sizeof(Process), com);	
-	
+	start = 0;
+	end = 0;
 	// Assign scheduler CPU number 0 and set a hight priority.
 	assignCPU(getpid(), 0);
 	wakeupProcess(getpid());
@@ -67,7 +70,7 @@ void scheduling(Process *process, char *policy, int n){
 	time = 0;
 	runningProcess = -1;
 	finishedCount = 0;
-	next = -1;
+	//next = -1;
 
 	while(1){
 
@@ -83,8 +86,9 @@ void scheduling(Process *process, char *policy, int n){
 				kill(defaultRunner, SIGKILL);
 				break;
 			}
-			next = (runningProcess + 1) % n;
+			//next = (runningProcess + 1) % n;
 			process[runningProcess].pid = -1;
+			/*
 			while(process[next].pid == -1 || process[next].executionTime == 0){
 				if(next == runningProcess){
 					break;
@@ -94,6 +98,8 @@ void scheduling(Process *process, char *policy, int n){
 			if(next == runningProcess){
 				next = -1;
 			}
+			*/
+
 			runningProcess = -1;
 		}
 
@@ -105,9 +111,13 @@ void scheduling(Process *process, char *policy, int n){
 				//fprintf(stderr, "[READY]	%s is ready and executed with pid %d at time %d\n", process[i].name, process[i].pid, time);		
 				printf("%s %d\n", process[i].name, process[i].pid);
 				fflush(stdout);
+				queue[end] = i;
+				end++;
+				/*
 				if(runningProcess == -1 && next == -1){
 					next = i;
 				}
+				*/
 			}
 			if(process[i].readyTime > time){
 				break;
@@ -276,16 +286,25 @@ void nextProcess(Process *process, char *policy, int n, pid_t *runningProcess, i
 	else if(strcmp(policy, "RR") == 0){
 		/* Policy is RR, check if the running time chieve time quamtum.
 		   if yes, choose next process to run. */
-		if(temp == -1){
+		if(temp == -1 && start != end){
 			// There is no process running, let next pid to run.
-			temp = next;
+			//temp = next;
+			temp = queue[start];
+			start++;
 		}
-		else if( (time - *keepTime) % 500 == 0){
+		else if( (time - *keepTime) % 500 == 0 && start != end){
 			// There is a process running, check how much time it has used to run.
+			/*
 			do{
 				temp++;
 				temp %= n;
 			}while(process[temp].pid == -1 || process[temp].executionTime == 0);
+			*/
+			queue[end] = temp;
+			end++;
+			temp = queue[start];
+			start++;
+
 		}
 	}
 	
